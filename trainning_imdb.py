@@ -5,6 +5,7 @@ import xgboost as xgb
 import matplotlib.pyplot as plt
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation, Flatten
+import os
 
 class trainning_netflix:
     def __init__(self,db,pct,col_pred,nb_couches,nb_var_select,nb_var_couche,cv,nb_split,prop_db,model_type):
@@ -20,14 +21,15 @@ class trainning_netflix:
         self.nb_var_couche = nb_var_couche
         self.cv = cv
         self.mes = pandas.DataFrame()
-        self.mes['11'] = [0] * 10
-        self.mes['10'] = 0
-        self.mes['01'] = 0
-        self.mes['00'] = 0
-        self.mes['auc'] = 0
         self.nb_split = nb_split
         self.prop_db = prop_db
         self.model_type = model_type
+        self.mes['all_1'] = [0]
+        self.mes['all_0'] = 0
+        for d in range(len(self.col_pred)):
+            self.mes[str(d) + '_1'] = 0
+            self.mes[str(d) + '_0'] = 0
+            self.mes[str(d) + '_auc'] = 0
 
     def split_train_test(self):
         rand = numpy.random.choice(range(len(self.db)),size = int((1 - self.pct) * len(self.db)),replace = False)
@@ -135,6 +137,7 @@ class trainning_netflix:
             self.split_train_test()
             k_y = 1
             y_pred = None
+            col_y_i = 0
             for col_y in self.y_train:
                 cor_xy = []
                 for c in self.x_train:
@@ -167,7 +170,7 @@ class trainning_netflix:
                         y_pred = numpy.c_[y_pred,model.predict_proba(x_an_test)[:,1]]
                     except:
                         y_pred = model.predict_proba(x_an_test)[:,1]
-
+                
                 if self.model_type == 'deeplearning':
                     model = Sequential()
                     model.add(Dense(128, activation='relu'))
@@ -182,54 +185,68 @@ class trainning_netflix:
                         y_pred = numpy.c_[y_pred,model.predict_proba(x_an_test)[:,0]]
                     except:
                         y_pred = model.predict_proba(x_an_test)[:,0]
+                try:
+                    fpr, tpr, thresholds = metrics.roc_curve(self.y_test[:,col_y_i], y_pred, pos_label=1)
+                    auc_res = metrics.auc(fpr, tpr)
+                except:
+                    fpr, tpr, thresholds = metrics.roc_curve(self.y_test[:,col_y_i], y_pred[:,y_pred.shape[1] - 1], pos_label=1)
+                    auc_res = metrics.auc(fpr, tpr)
+
+                self.mes[str(col_y_i) + '_auc'].iloc[0] += auc_res
+
+                col_y_i += 1
 
                 print(str(k_y) + ' - ' + str(self.prop_db) + ' - ' + str(i))
                 k_y += 1
+
             y_dec = numpy.apply_along_axis(numpy.argmax,1,y_pred)
             kyd = 0
             for d in y_dec:
-                self.mes['11'].iloc[0] += self.y_test[kyd,d]
-                self.mes['10'].iloc[0] += 1 - self.y_test[kyd,d]
+                self.mes['all_1'].iloc[0] += self.y_test[kyd,d]
+                self.mes['all_0'].iloc[0] += 1 - self.y_test[kyd,d]
+                self.mes[str(d) + '_1'] += self.y_test[kyd,d]
+                self.mes[str(d) + '_0'].iloc[0] += 1 - self.y_test[kyd,d]
+
                 kyd += 1
+
         self.mes.to_csv('C:\\netflix\\model_outecomes_imdb_' + str(self.model_type) + '_' + str(self.prop_db) + '.csv',sep = ';',index = False)
 
 model_type = ['deeplearning','rf','logistic','xgboost']
-# db = pandas.read_csv('C:\\netflix\\nlp_idmb.csv',engine = 'python',sep = ';')
-# sel_nan = db['note'].apply(lambda x: str(x).lower() != 'nan')
-# db = db[sel_nan]
-# db.index = range(len(db))
-# db['note'] = db['note'].apply(lambda x: x.split(' ')[0])
-# db['note'] = db['note'].apply(lambda x: float(x.replace(',','.')))
-# sel_25 = numpy.array(db['note'] <= numpy.quantile(numpy.array(db['note']),0.25))
-# sel_50 = numpy.array(db['note'] > numpy.quantile(numpy.array(db['note']),0.25)) * numpy.array(db['note'] <= numpy.quantile(numpy.array(db['note']),0.5))
-# sel_75 = numpy.array(db['note'] > numpy.quantile(numpy.array(db['note']),0.5)) * numpy.array(db['note'] <= numpy.quantile(numpy.array(db['note']),0.75))
-# sel_100 = numpy.array(db['note'] > numpy.quantile(numpy.array(db['note']),0.75))
-# db['note_100'] = 0
-# db['note_75'] = 0
-# db['note_50'] = 0
-# db['note_25'] = 0
-# db['note_100'][sel_100] = 1
-# db['note_75'][sel_75] = 1
-# db['note_50'][sel_50] = 1
-# db['note_25'][sel_25] = 1
-# db = db.drop('note',axis = 1)
-# col_pred = ['note_25','note_50','note_75','note_100']
-# nb_var_couche = [0]
-# nb_var_select = 10
-# nb_couches = len(nb_var_couche)
-# for prop in range(20):
-#     for m in model_type:
-#         tn = trainning_netflix(db = db,
-#                                 pct = 0.1,
-#                                 col_pred = col_pred,
-#                                 nb_couches = nb_couches,
-#                                 nb_var_select = nb_var_select,
-#                                 nb_var_couche = nb_var_couche,
-#                                 cv = 1,
-#                                 nb_split = 10,
-#                                 prop_db = (prop + 1) / 20,
-#                                 model_type = m)
-#         tn.mesure()
+db = pandas.read_csv('C:\\netflix\\nlp_idmb.csv',engine = 'python',sep = ';')
+sel_nan = db['note'].apply(lambda x: str(x).lower() != 'nan')
+db = db[sel_nan]
+db.index = range(len(db))
+
+db['note'] = db['note'].apply(lambda x: x.split(' ')[0])
+db['note'] = db['note'].apply(lambda x: float(x.replace(',','.')))
+
+col_pred = []
+nb_split = 4
+for q in range(nb_split):
+    sel_q = numpy.array(db['note'] <= numpy.quantile(numpy.array(db['note']),(q+1) / nb_split)) * numpy.array(db['note'] > numpy.quantile(numpy.array(db['note']),q / nb_split))
+    db['note_' + str(q)] = 0
+    db['note_' + str(q)][sel_q]= 1
+    col_pred.append('note_' + str(q))
+
+db = db.drop('note',axis = 1)
+
+nb_var_couche = [0]
+nb_var_select = 10
+nb_couches = len(nb_var_couche)
+nb_split_cor = 10
+for prop in range(nb_split_cor):
+    for m in model_type:
+        tn = trainning_netflix(db = db,
+                                pct = 0.1,
+                                col_pred = col_pred,
+                                nb_couches = nb_couches,
+                                nb_var_select = nb_var_select,
+                                nb_var_couche = nb_var_couche,
+                                cv = 1,
+                                nb_split = 10,
+                                prop_db = (prop + 1) / nb_split_cor,
+                                model_type = m)
+        tn.mesure()
 
 mat = pandas.DataFrame()
 for prop in range(100):
@@ -237,13 +254,9 @@ for prop in range(100):
         try:
             filename = 'C:\\netflix\\model_outecomes_imdb_' + str(m) + '_' + str((prop + 1) / 100) + '.csv'
             temp = pandas.read_csv(filename,engine = 'python',sep = ';')
-            n_temp = pandas.DataFrame()
-            n_temp['prop'] = [(prop + 1) / 20]
-            n_temp['model'] = m
-            n_temp['11'] = temp['11'].iloc[0]
-            n_temp['10'] = temp['10'].iloc[0]
-            n_temp['accuracy'] = n_temp['11'] / (n_temp['11'] + n_temp['10'])
+            temp = temp.iloc[0]
             mat = mat.append(n_temp)
+            os.remove(filename)
         except:
             pass
-mat.to_csv('C:\\netflix\\model_outecomes_imdb_4.csv',index = False,sep = ';')
+mat.to_csv('C:\\netflix\\model_outecomes_imdb_' + str(q+1) + '.csv',index = False,sep = ';')
